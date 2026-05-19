@@ -113,6 +113,10 @@ services:
       LITELLM_SALT_KEY: "${LITELLM_SALT_KEY}"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       STORE_MODEL_IN_DB: "true"
+      # Informa ao FastAPI/LiteLLM que ele está montado sob /litellm no proxy.
+      # Sem isso a página inicial referencia /swagger/* em paths absolutos
+      # e o Nginx devolve 404 nesses assets.
+      SERVER_ROOT_PATH: "/litellm"
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "2"]
     networks:
       - ai-net
