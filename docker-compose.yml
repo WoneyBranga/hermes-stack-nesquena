@@ -77,7 +77,9 @@ x-hermes-agent-base: &hermes-agent-base
 # com basic auth na borda, expor 0.0.0.0 internamente eh seguro.
 x-hermes-dashboard-base: &hermes-dashboard-base
   image: nousresearch/hermes-agent:v2026.5.16
-  command: dashboard --host 0.0.0.0 --port 9119 --insecure --no-open
+  # --tui habilita a aba Chat in-browser do dashboard (PTY).
+  # Equivalente a setar HERMES_DASHBOARD_TUI=1.
+  command: dashboard --host 0.0.0.0 --port 9119 --insecure --no-open --tui
   restart: unless-stopped
   depends_on:
     litellm:
