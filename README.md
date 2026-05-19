@@ -5,9 +5,14 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** + **3 da
 ```
             ┌────────────────────────── porta 80 (host) ─────────────────────────────┐
             │   Nginx  (reverse proxy + basic auth + sub_filter)                     │
-            │   ├── /litellm/   → LiteLLM (API + UI admin)        sem auth           │
-            │   ├── /chat01..03/→ hermes-webui   user_0X          auth user_0X       │
-            │   └── /dash01..03/→ hermes-dashboard user_0X        auth user_0X       │
+            │   ├── /litellm/    → LiteLLM (API + UI admin)        sem auth          │
+            │   ├── /chat01..03/ → hermes-webui   user_0X          auth user_0X      │
+            │   └── /dash01..03  → 302 redirect para porta 900X                      │
+            ├────────────────────────────────────────────────────────────────────────┤
+            │ portas 9001/9002/9003 (host) — uma por dashboard                       │
+            │   ├── :9001 → hermes-dashboard user_01                auth user_01     │
+            │   ├── :9002 → hermes-dashboard user_02                auth user_02     │
+            │   └── :9003 → hermes-dashboard user_03                auth user_03     │
             └────────────────────────────────────────────────────────────────────────┘
                                        │
    ┌───────────────────────────────────┼───────────────────────────────────┐
@@ -58,8 +63,8 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** + **3 da
 - **Billing/limit por usuário** — virtual keys do LiteLLM permitem definir budget, rate-limit e logs por usuário direto pela UI admin.
 - **Autenticação na borda** — Basic Auth em bcrypt configurado por usuário no Nginx; senhas vivem só no `.env`, nunca em disco fora do container.
 - **Versões cravadas** — nenhuma tag `:latest`. Upgrades exigem alteração explícita no Compose, facilitando rollback.
-- **Sub-path routing** — uma só porta (`80`) expõe 7 rotas distintas. `sub_filter` reescreve caminhos absolutos no HTML pra que assets das WebUIs e do Dashboard funcionem sob `/chat01..03/` e `/dash01..03/`.
-- **Dashboard admin por usuário** — `/dash01..03/` exibe o painel oficial do Hermes (`hermes dashboard`), permitindo inspecionar memória, skills, sessões e configuração de cada usuário sem precisar entrar no container.
+- **Sub-path routing para chats** — porta 80 expõe `/litellm/` + `/chat01..03/`. `sub_filter` reescreve caminhos absolutos no HTML pra que assets da WebUI funcionem sob sub-path.
+- **Dashboard admin por usuário** — `hermes dashboard` é uma SPA (React) que **não suporta sub-path** (fetch/WebSocket usam paths absolutos em runtime), então cada dashboard fica numa porta dedicada: `:9001` (user_01), `:9002` (user_02), `:9003` (user_03). A rota `/dash0X` da porta 80 faz 302 para a porta correta apenas como atalho.
 - **YAML anchors** — `&hermes-agent-base`, `&hermes-dashboard-base`, `&hermes-webui-base` e `&litellm-inference` eliminam duplicação no [docker-compose.yml](docker-compose.yml).
 
 ---
@@ -154,9 +159,9 @@ docker compose logs -f hermes-webui-user_01
 | `http://SEU_IP/chat01/` | `NGINX_USER_01` / `NGINX_PASS_01` | Chat do usuário 1. |
 | `http://SEU_IP/chat02/` | `NGINX_USER_02` / `NGINX_PASS_02` | Chat do usuário 2. |
 | `http://SEU_IP/chat03/` | `NGINX_USER_03` / `NGINX_PASS_03` | Chat do usuário 3. |
-| `http://SEU_IP/dash01/` | `NGINX_USER_01` / `NGINX_PASS_01` | Dashboard admin do usuário 1. |
-| `http://SEU_IP/dash02/` | `NGINX_USER_02` / `NGINX_PASS_02` | Dashboard admin do usuário 2. |
-| `http://SEU_IP/dash03/` | `NGINX_USER_03` / `NGINX_PASS_03` | Dashboard admin do usuário 3. |
+| `http://SEU_IP:9001/` (ou `/dash01` que redireciona) | `NGINX_USER_01` / `NGINX_PASS_01` | Dashboard admin do usuário 1. |
+| `http://SEU_IP:9002/` (ou `/dash02` que redireciona) | `NGINX_USER_02` / `NGINX_PASS_02` | Dashboard admin do usuário 2. |
+| `http://SEU_IP:9003/` (ou `/dash03` que redireciona) | `NGINX_USER_03` / `NGINX_PASS_03` | Dashboard admin do usuário 3. |
 | `http://SEU_IP/litellm/ui` | `admin` / `LITELLM_MASTER_KEY` | Admin do LiteLLM. |
 
 ---
@@ -212,9 +217,10 @@ Stack está fixa em 3 slots porque cada usuário exige:
 
 - 3 services no Compose (`hermes-agent-user_0X` + `hermes-webui-user_0X` + `hermes-dashboard-user_0X`),
 - 2 volumes (`hermes-home-user_0X`, `hermes-agent-src-user_0X`),
-- 2 upstreams + 2 locations no [nginx/nginx.conf](nginx/nginx.conf) (`webui_user0X` + `dash_user0X`, `/chat0X/` + `/dash0X/`),
+- 2 upstreams no [nginx/nginx.conf](nginx/nginx.conf) (`webui_user0X` + `dash_user0X`), 1 location `/chat0X/` + 2 redirects `/dash0X` no servidor da porta 80, e 1 `server {}` extra escutando na porta dedicada do dashboard,
 - 1 chamada extra `generate_htpasswd "N"` em [nginx/docker-entrypoint.sh](nginx/docker-entrypoint.sh),
-- 1 par `NGINX_USER_0N` / `NGINX_PASS_0N` no `.env`,
+- 1 par `NGINX_USER_0N` / `NGINX_PASS_0N` + `DASH_PORT_0N` no `.env`,
+- 1 mapeamento de porta em `ports:` do nginx no [docker-compose.yml](docker-compose.yml),
 - 1 virtual key na UI do LiteLLM colada em `LITELLM_USER_0N_API_KEY`.
 
 Para acrescentar `user_04` siga o padrão dos 3 existentes. Para remover, faça o inverso — incluindo `docker volume rm` para liberar disco.

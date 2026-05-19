@@ -8,14 +8,20 @@
 #   hermes-dashboard×3 → NousResearch/hermes-agent em dashboard mode
 #   nginx              → reverse proxy + basic auth
 #
-# Rotas públicas (porta 80):
-#   /litellm/  → LiteLLM admin UI + API
-#   /chat01/   → hermes-webui      user_01 (basic auth user_01)
-#   /chat02/   → hermes-webui      user_02 (basic auth user_02)
-#   /chat03/   → hermes-webui      user_03 (basic auth user_03)
-#   /dash01/   → hermes-dashboard  user_01 (basic auth user_01)
-#   /dash02/   → hermes-dashboard  user_02 (basic auth user_02)
-#   /dash03/   → hermes-dashboard  user_03 (basic auth user_03)
+# Rotas públicas:
+#   Porta 80:
+#     /litellm/         → LiteLLM admin UI + API
+#     /chat01/          → hermes-webui user_01 (basic auth user_01)
+#     /chat02/          → hermes-webui user_02 (basic auth user_02)
+#     /chat03/          → hermes-webui user_03 (basic auth user_03)
+#     /dash01..03/      → 302 redirect para a porta dedicada do dashboard
+#   Porta 9001:         → hermes-dashboard user_01 (basic auth user_01)
+#   Porta 9002:         → hermes-dashboard user_02 (basic auth user_02)
+#   Porta 9003:         → hermes-dashboard user_03 (basic auth user_03)
+#
+# O Hermes Dashboard eh uma SPA e nao suporta sub-path (fetch e
+# WebSocket usam paths absolutos em runtime). Por isso cada dashboard
+# precisa de uma origem propria (porta dedicada).
 #
 # Versões dos containers (atualize aqui para upgrades):
 #   litellm:          v1.85.0
@@ -320,6 +326,11 @@ services:
     restart: unless-stopped
     ports:
       - "${NGINX_PORT:-80}:80"
+      # Dashboards em portas dedicadas (SPA do Hermes nao suporta sub-path).
+      # /dash01..03 na porta 80 redirecionam para essas portas.
+      - "${DASH_PORT_01:-9001}:9001"
+      - "${DASH_PORT_02:-9002}:9002"
+      - "${DASH_PORT_03:-9003}:9003"
     environment:
       NGINX_USER_01: "${NGINX_USER_01:-user01}"
       NGINX_PASS_01: "${NGINX_PASS_01}"
