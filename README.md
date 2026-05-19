@@ -6,7 +6,7 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** + **3 da
             ┌────────────────────────── porta 80 (host) ─────────────────────────────┐
             │   Nginx  (reverse proxy + basic auth + sub_filter)                     │
             │   ├── /litellm/   → LiteLLM (API + UI admin)        sem auth           │
-            │   ├── /chat1..3/  → hermes-webui   user_0X          auth user_0X       │
+            │   ├── /chat01..03/→ hermes-webui   user_0X          auth user_0X       │
             │   └── /dash01..03/→ hermes-dashboard user_0X        auth user_0X       │
             └────────────────────────────────────────────────────────────────────────┘
                                        │
@@ -58,7 +58,7 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** + **3 da
 - **Billing/limit por usuário** — virtual keys do LiteLLM permitem definir budget, rate-limit e logs por usuário direto pela UI admin.
 - **Autenticação na borda** — Basic Auth em bcrypt configurado por usuário no Nginx; senhas vivem só no `.env`, nunca em disco fora do container.
 - **Versões cravadas** — nenhuma tag `:latest`. Upgrades exigem alteração explícita no Compose, facilitando rollback.
-- **Sub-path routing** — uma só porta (`80`) expõe 7 rotas distintas. `sub_filter` reescreve caminhos absolutos no HTML pra que assets das WebUIs e do Dashboard funcionem sob `/chat1..3/` e `/dash01..03/`.
+- **Sub-path routing** — uma só porta (`80`) expõe 7 rotas distintas. `sub_filter` reescreve caminhos absolutos no HTML pra que assets das WebUIs e do Dashboard funcionem sob `/chat01..03/` e `/dash01..03/`.
 - **Dashboard admin por usuário** — `/dash01..03/` exibe o painel oficial do Hermes (`hermes dashboard`), permitindo inspecionar memória, skills, sessões e configuração de cada usuário sem precisar entrar no container.
 - **YAML anchors** — `&hermes-agent-base`, `&hermes-dashboard-base`, `&hermes-webui-base` e `&litellm-inference` eliminam duplicação no [docker-compose.yml](docker-compose.yml).
 
@@ -75,7 +75,7 @@ hermes-stack-nesquena/
 └── nginx/
     ├── Dockerfile              # nginx:1.27-alpine + apache2-utils
     ├── docker-entrypoint.sh    # gera .htpasswd (bcrypt) no boot
-    └── nginx.conf              # rotas /litellm/, /chat1..3/, /dash01..03/
+    └── nginx.conf              # rotas /litellm/, /chat01..03/, /dash01..03/
 ```
 
 ---
@@ -150,10 +150,10 @@ docker compose logs -f hermes-webui-user_01
 
 | URL | Login | Para quê |
 |---|---|---|
-| `http://SEU_IP/` | — | Redireciona para `/chat1/`. |
-| `http://SEU_IP/chat1/` | `NGINX_USER_01` / `NGINX_PASS_01` | Chat do usuário 1. |
-| `http://SEU_IP/chat2/` | `NGINX_USER_02` / `NGINX_PASS_02` | Chat do usuário 2. |
-| `http://SEU_IP/chat3/` | `NGINX_USER_03` / `NGINX_PASS_03` | Chat do usuário 3. |
+| `http://SEU_IP/` | — | Redireciona para `/chat01/`. |
+| `http://SEU_IP/chat01/` | `NGINX_USER_01` / `NGINX_PASS_01` | Chat do usuário 1. |
+| `http://SEU_IP/chat02/` | `NGINX_USER_02` / `NGINX_PASS_02` | Chat do usuário 2. |
+| `http://SEU_IP/chat03/` | `NGINX_USER_03` / `NGINX_PASS_03` | Chat do usuário 3. |
 | `http://SEU_IP/dash01/` | `NGINX_USER_01` / `NGINX_PASS_01` | Dashboard admin do usuário 1. |
 | `http://SEU_IP/dash02/` | `NGINX_USER_02` / `NGINX_PASS_02` | Dashboard admin do usuário 2. |
 | `http://SEU_IP/dash03/` | `NGINX_USER_03` / `NGINX_PASS_03` | Dashboard admin do usuário 3. |
@@ -266,7 +266,7 @@ docker run --rm -v hermes-stack-nesquena_hermes-home-user_01:/data \
 |---|---|---|
 | `nginx-init ERRO: NGINX_PASS_01 não definido` | `.env` incompleto. | `docker compose config \| grep NGINX_PASS_01` |
 | WebUI sobe mas erro `401` no LiteLLM | Virtual key inválida/expirada. | Recrie em `/litellm/ui` e atualize `LITELLM_USER_0X_API_KEY`. |
-| Assets quebrados em `/chat1/` (CSS/JS 404) | `sub_filter` não pegou um caminho específico. | Inspecione no DevTools quais URLs estão `/algo` em vez de `/chat1/algo` e adicione padrões no [nginx/nginx.conf](nginx/nginx.conf). |
+| Assets quebrados em `/chat01/` (CSS/JS 404) | `sub_filter` não pegou um caminho específico. | Inspecione no DevTools quais URLs estão `/algo` em vez de `/chat01/algo` e adicione padrões no [nginx/nginx.conf](nginx/nginx.conf). |
 | WebUI demora muito no primeiro boot | `pip install` do `hermes` rodando. | `docker compose logs -f hermes-webui-user_01` — espere "Application startup complete". |
 | Permissão negada nos volumes | `HERMES_UID`/`HERMES_GID` no `.env` diferem do dono dos volumes. | `id -u && id -g`; apague volumes e suba de novo se necessário. |
 | `litellm` reinicia em loop | Postgres ainda não pronto. | `docker compose logs litellm-db` e aguarde `healthy`. |

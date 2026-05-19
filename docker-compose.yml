@@ -10,12 +10,12 @@
 #
 # Rotas públicas (porta 80):
 #   /litellm/  → LiteLLM admin UI + API
-#   /chat1/    → hermes-webui user_01     (basic auth user_01)
-#   /chat2/    → hermes-webui user_02     (basic auth user_02)
-#   /chat3/    → hermes-webui user_03     (basic auth user_03)
-#   /dash01/   → hermes-dashboard user_01 (basic auth user_01)
-#   /dash02/   → hermes-dashboard user_02 (basic auth user_02)
-#   /dash03/   → hermes-dashboard user_03 (basic auth user_03)
+#   /chat01/   → hermes-webui      user_01 (basic auth user_01)
+#   /chat02/   → hermes-webui      user_02 (basic auth user_02)
+#   /chat03/   → hermes-webui      user_03 (basic auth user_03)
+#   /dash01/   → hermes-dashboard  user_01 (basic auth user_01)
+#   /dash02/   → hermes-dashboard  user_02 (basic auth user_02)
+#   /dash03/   → hermes-dashboard  user_03 (basic auth user_03)
 #
 # Versões dos containers (atualize aqui para upgrades):
 #   litellm:          v1.85.0
