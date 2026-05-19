@@ -31,6 +31,10 @@ generate_htpasswd() {
   local htfile="/etc/nginx/.htpasswd-user_0${slot}"
   info "Gerando ${htfile} para o usuário '${user}' (bcrypt)..."
   htpasswd -cbB "${htfile}" "${user}" "${pass}"
+  # Workers do nginx rodam como user 'nginx' (uid 101); root cria o
+  # arquivo, então precisamos transferir a posse para que o worker
+  # consiga ler. Modo 600 mantido — apenas o dono lê.
+  chown nginx:nginx "${htfile}"
   chmod 600 "${htfile}"
 }
 
