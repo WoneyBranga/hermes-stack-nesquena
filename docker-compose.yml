@@ -41,8 +41,20 @@
 # ── YAML anchors ─────────────────────────────────────────────
 
 x-litellm-inference: &litellm-inference
+  # Aponta o Hermes para o LiteLLM via API OpenAI-compatible.
+  # Quando OPENAI_BASE_URL esta setado, o Hermes ignora a selecao de
+  # provider e fala diretamente com esse endpoint usando OPENAI_API_KEY
+  # como auth. A model_name aqui PRECISA bater com algum model_name do
+  # litellm/litellm_config.yaml.
+  #
+  # Refs:
+  #   https://hermes-agent.nousresearch.com/docs/reference/environment-variables
+  #   https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+  OPENAI_BASE_URL: "http://litellm:4000/v1"
   HERMES_INFERENCE_PROVIDER: "custom"
-  CUSTOM_BASE_URL: "http://litellm:4000/v1"
+  HERMES_INFERENCE_MODEL: "${HERMES_MODEL:-gemini-flash-lite}"
+  # HERMES_MODEL governa apenas o cron scheduler — mantemos sincronizado
+  # com o modelo do processo para nao termos divergencia em jobs agendados.
   HERMES_MODEL: "${HERMES_MODEL:-gemini-flash-lite}"
 
 x-hermes-agent-base: &hermes-agent-base
