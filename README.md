@@ -1,49 +1,41 @@
 # Hermes Stack — multi-usuário com LiteLLM + Nginx
 
-Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** atrás de um Nginx com Basic Auth, todos compartilhando um proxy **LiteLLM** centralizado para o provedor LLM.
+Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** + **3 dashboards admin** atrás de um Nginx com Basic Auth, todos compartilhando um proxy **LiteLLM** centralizado para o provedor LLM.
 
 ```
-                  ┌──────────────────────── porta 80 (host) ─────────────────────────┐
-                  │                                                                  │
-                  │   Nginx  (reverse proxy + basic auth + sub_filter)               │
-                  │   ├── /litellm/   → LiteLLM (API + UI admin)                     │
-                  │   ├── /chat1/     → hermes-webui user_01   (auth: NGINX_USER_01) │
-                  │   ├── /chat2/     → hermes-webui user_02   (auth: NGINX_USER_02) │
-                  │   └── /chat3/     → hermes-webui user_03   (auth: NGINX_USER_03) │
-                  └──────────────────────────────────────────────────────────────────┘
-                                              │
-            ┌─────────────────────────────────┼──────────────────────────────────────┐
-            │                                 │                                      │
-   ┌────────▼────────┐               ┌────────▼────────┐                  ┌──────────▼──────────┐
-   │  hermes-webui-  │               │  hermes-webui-  │                  │   hermes-webui-     │
-   │     user_01     │   ........    │     user_02     │   ........       │      user_03        │
-   └────────┬────────┘               └────────┬────────┘                  └──────────┬──────────┘
-            │ usa código de                   │                                      │
-            │ /opt/hermes (vol. ro)           │                                      │
-   ┌────────▼────────┐               ┌────────▼────────┐                  ┌──────────▼──────────┐
-   │ hermes-agent-   │               │ hermes-agent-   │                  │  hermes-agent-      │
-   │    user_01      │               │    user_02      │                  │      user_03        │
-   │  (gateway run)  │               │  (gateway run)  │                  │   (gateway run)     │
-   └────────┬────────┘               └────────┬────────┘                  └──────────┬──────────┘
-            │                                 │                                      │
-            │  OPENAI_API_KEY = virtual key   │   (uma virtual key por usuário,      │
-            │  CUSTOM_BASE_URL = litellm:4000 │    isolando uso/billing/limites)     │
-            │                                 │                                      │
-            └─────────────────────────────────┼──────────────────────────────────────┘
-                                              ▼
-                                      ┌──────────────┐
-                                      │   LiteLLM    │  ← proxy OpenAI-compatible
-                                      │   :4000      │  ← /ui admin (virtual keys)
-                                      └──────┬───────┘
-                                             │
-                                ┌────────────┴───────────────┐
-                                ▼                            ▼
-                       ┌──────────────────┐         ┌────────────────────┐
-                       │ Postgres 16      │         │ Provider real      │
-                       │ (litellm-db)     │         │ Gemini / OpenAI /  │
-                       │ guarda virtual   │         │ Anthropic / etc.   │
-                       │ keys + logs      │         └────────────────────┘
-                       └──────────────────┘
+            ┌────────────────────────── porta 80 (host) ─────────────────────────────┐
+            │   Nginx  (reverse proxy + basic auth + sub_filter)                     │
+            │   ├── /litellm/   → LiteLLM (API + UI admin)        sem auth           │
+            │   ├── /chat1..3/  → hermes-webui   user_0X          auth user_0X       │
+            │   └── /dash01..03/→ hermes-dashboard user_0X        auth user_0X       │
+            └────────────────────────────────────────────────────────────────────────┘
+                                       │
+   ┌───────────────────────────────────┼───────────────────────────────────┐
+   │                                   │                                   │
+   ▼ (por usuário 01/02/03)            ▼                                   ▼
+ ┌─────────────────┐         ┌──────────────────────┐          ┌─────────────────────┐
+ │  hermes-webui-  │         │  hermes-dashboard-   │          │   hermes-agent-     │
+ │     user_0X     │         │      user_0X         │          │      user_0X        │
+ │  (chat UI 8787) │         │ (admin dash 9119)    │          │   (gateway run)     │
+ └────────┬────────┘         └──────────┬───────────┘          └──────────┬──────────┘
+          │                             │                                 │
+          └───── hermes-home-user_0X (volume compartilhado) ───────────────┘
+                                       │
+                                       │  OPENAI_API_KEY = virtual key
+                                       │  OPENAI_BASE_URL = litellm:4000
+                                       ▼
+                               ┌──────────────┐
+                               │   LiteLLM    │  ← proxy OpenAI-compatible
+                               │    :4000     │  ← /litellm/ui admin
+                               └──────┬───────┘
+                                      │
+                         ┌────────────┴───────────────┐
+                         ▼                            ▼
+                ┌──────────────────┐         ┌────────────────────┐
+                │ Postgres 16      │         │ Provider real      │
+                │ (litellm-db)     │         │ Gemini / OpenAI /  │
+                │ virtual keys     │         │ Anthropic / etc.   │
+                └──────────────────┘         └────────────────────┘
 ```
 
 ---
@@ -56,6 +48,7 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** atrás d
 | `litellm` | `docker.litellm.ai/berriai/litellm-database` | `v1.85.0` | Proxy OpenAI-compatible. UI admin em `/litellm/ui`. |
 | `hermes-agent-user_0X` | `nousresearch/hermes-agent` | `v2026.5.16` | Agente Hermes em `gateway run`. Publica o código-fonte do pacote `hermes` no volume `/opt/hermes` para a WebUI consumir. |
 | `hermes-webui-user_0X` | `ghcr.io/nesquena/hermes-webui` | `0.51.92` | Chat UI. Auto-instala o pacote `hermes` do volume compartilhado no primeiro boot (`HERMES_WEBUI_AUTO_INSTALL=1`). |
+| `hermes-dashboard-user_0X` | `nousresearch/hermes-agent` | `v2026.5.16` | Dashboard admin (`hermes dashboard --host 0.0.0.0 --port 9119 --insecure --no-open`). Compartilha `hermes-home-user_0X` com o agente do mesmo usuário, então mostra sessões, memória, skills e config em tempo real. |
 | `nginx` | `nginx` | `1.27-alpine` (base) | Reverse proxy. Dockerfile customizado adiciona `apache2-utils` e gera os `.htpasswd` em bcrypt no startup, lendo as variáveis `NGINX_USER_0X` / `NGINX_PASS_0X` do `.env`. |
 
 ### Funcionalidades
@@ -65,8 +58,9 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** atrás d
 - **Billing/limit por usuário** — virtual keys do LiteLLM permitem definir budget, rate-limit e logs por usuário direto pela UI admin.
 - **Autenticação na borda** — Basic Auth em bcrypt configurado por usuário no Nginx; senhas vivem só no `.env`, nunca em disco fora do container.
 - **Versões cravadas** — nenhuma tag `:latest`. Upgrades exigem alteração explícita no Compose, facilitando rollback.
-- **Sub-path routing** — uma só porta (`80`) expõe 4 rotas distintas. `sub_filter` reescreve caminhos absolutos no HTML pra que assets das WebUIs funcionem sob `/chat1/`, `/chat2/`, `/chat3/`.
-- **YAML anchors** — `&hermes-agent-base`, `&hermes-webui-base` e `&litellm-inference` eliminam duplicação no [docker-compose.yml](docker-compose.yml).
+- **Sub-path routing** — uma só porta (`80`) expõe 7 rotas distintas. `sub_filter` reescreve caminhos absolutos no HTML pra que assets das WebUIs e do Dashboard funcionem sob `/chat1..3/` e `/dash01..03/`.
+- **Dashboard admin por usuário** — `/dash01..03/` exibe o painel oficial do Hermes (`hermes dashboard`), permitindo inspecionar memória, skills, sessões e configuração de cada usuário sem precisar entrar no container.
+- **YAML anchors** — `&hermes-agent-base`, `&hermes-dashboard-base`, `&hermes-webui-base` e `&litellm-inference` eliminam duplicação no [docker-compose.yml](docker-compose.yml).
 
 ---
 
@@ -74,14 +68,14 @@ Stack Docker Compose enxuta que coloca **3 chats Hermes independentes** atrás d
 
 ```
 hermes-stack-nesquena/
-├── docker-compose.yml          # 8 services + 1 rede + 7 volumes
+├── docker-compose.yml          # 11 services + 1 rede + 7 volumes
 ├── .env.example                # template — copiar para .env
 ├── litellm/
 │   └── litellm_config.yaml     # model_list + general_settings
 └── nginx/
     ├── Dockerfile              # nginx:1.27-alpine + apache2-utils
     ├── docker-entrypoint.sh    # gera .htpasswd (bcrypt) no boot
-    └── nginx.conf              # rotas /litellm/, /chat1..3/
+    └── nginx.conf              # rotas /litellm/, /chat1..3/, /dash01..03/
 ```
 
 ---
@@ -160,6 +154,9 @@ docker compose logs -f hermes-webui-user_01
 | `http://SEU_IP/chat1/` | `NGINX_USER_01` / `NGINX_PASS_01` | Chat do usuário 1. |
 | `http://SEU_IP/chat2/` | `NGINX_USER_02` / `NGINX_PASS_02` | Chat do usuário 2. |
 | `http://SEU_IP/chat3/` | `NGINX_USER_03` / `NGINX_PASS_03` | Chat do usuário 3. |
+| `http://SEU_IP/dash01/` | `NGINX_USER_01` / `NGINX_PASS_01` | Dashboard admin do usuário 1. |
+| `http://SEU_IP/dash02/` | `NGINX_USER_02` / `NGINX_PASS_02` | Dashboard admin do usuário 2. |
+| `http://SEU_IP/dash03/` | `NGINX_USER_03` / `NGINX_PASS_03` | Dashboard admin do usuário 3. |
 | `http://SEU_IP/litellm/ui` | `admin` / `LITELLM_MASTER_KEY` | Admin do LiteLLM. |
 
 ---
@@ -213,9 +210,9 @@ docker compose up -d hermes-agent-user_01 hermes-agent-user_02 hermes-agent-user
 
 Stack está fixa em 3 slots porque cada usuário exige:
 
-- 2 services no Compose (`hermes-agent-user_0X` + `hermes-webui-user_0X`),
+- 3 services no Compose (`hermes-agent-user_0X` + `hermes-webui-user_0X` + `hermes-dashboard-user_0X`),
 - 2 volumes (`hermes-home-user_0X`, `hermes-agent-src-user_0X`),
-- 1 upstream + 1 location no [nginx/nginx.conf](nginx/nginx.conf),
+- 2 upstreams + 2 locations no [nginx/nginx.conf](nginx/nginx.conf) (`webui_user0X` + `dash_user0X`, `/chat0X/` + `/dash0X/`),
 - 1 chamada extra `generate_htpasswd "N"` em [nginx/docker-entrypoint.sh](nginx/docker-entrypoint.sh),
 - 1 par `NGINX_USER_0N` / `NGINX_PASS_0N` no `.env`,
 - 1 virtual key na UI do LiteLLM colada em `LITELLM_USER_0N_API_KEY`.

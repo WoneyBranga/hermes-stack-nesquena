@@ -2,16 +2,20 @@
 # Hermes Agent Stack — hermes-stack-2
 # =============================================================
 # Serviços:
-#   LiteLLM   → proxy OpenAI-compatible + UI admin
+#   LiteLLM            → proxy OpenAI-compatible + UI admin
 #   hermes-agent × 3   → NousResearch/hermes-agent em gateway mode
-#   hermes-webui × 3   → nesquena/hermes-webui por usuário
-#   nginx     → reverse proxy + basic auth
+#   hermes-webui × 3   → nesquena/hermes-webui (chat por usuário)
+#   hermes-dashboard×3 → NousResearch/hermes-agent em dashboard mode
+#   nginx              → reverse proxy + basic auth
 #
 # Rotas públicas (porta 80):
 #   /litellm/  → LiteLLM admin UI + API
-#   /chat1/    → hermes-webui user_01  (basic auth)
-#   /chat2/    → hermes-webui user_02  (basic auth)
-#   /chat3/    → hermes-webui user_03  (basic auth)
+#   /chat1/    → hermes-webui user_01     (basic auth user_01)
+#   /chat2/    → hermes-webui user_02     (basic auth user_02)
+#   /chat3/    → hermes-webui user_03     (basic auth user_03)
+#   /dash01/   → hermes-dashboard user_01 (basic auth user_01)
+#   /dash02/   → hermes-dashboard user_02 (basic auth user_02)
+#   /dash03/   → hermes-dashboard user_03 (basic auth user_03)
 #
 # Versões dos containers (atualize aqui para upgrades):
 #   litellm:          v1.85.0
@@ -60,6 +64,20 @@ x-litellm-inference: &litellm-inference
 x-hermes-agent-base: &hermes-agent-base
   image: nousresearch/hermes-agent:v2026.5.16
   command: gateway run
+  restart: unless-stopped
+  depends_on:
+    litellm:
+      condition: service_healthy
+  networks:
+    - ai-net
+
+# Dashboard usa a mesma imagem do agente mas em modo dashboard.
+# --insecure permite bind em 0.0.0.0 (necessario para o nginx alcancar
+# o container via rede interna do compose). Como o nginx faz o proxy
+# com basic auth na borda, expor 0.0.0.0 internamente eh seguro.
+x-hermes-dashboard-base: &hermes-dashboard-base
+  image: nousresearch/hermes-agent:v2026.5.16
+  command: dashboard --host 0.0.0.0 --port 9119 --insecure --no-open
   restart: unless-stopped
   depends_on:
     litellm:
@@ -174,6 +192,21 @@ services:
       OPENAI_API_KEY: "${LITELLM_USER_01_API_KEY}"
 
   # =============================================================
+  # User 01 — hermes-dashboard (admin web em /dash01/)
+  # =============================================================
+  hermes-dashboard-user_01:
+    <<: *hermes-dashboard-base
+    container_name: hermes-dashboard-user_01
+    volumes:
+      - hermes-home-user_01:/home/hermes/.hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_01_API_KEY}"
+      <<: *litellm-inference
+
+  # =============================================================
   # User 02 — hermes-agent (gateway interno)
   # =============================================================
   hermes-agent-user_02:
@@ -207,6 +240,21 @@ services:
       <<: *hermes-webui-env
       HERMES_WEBUI_STATE_DIR: "/home/hermeswebui/.hermes/webui-user_02"
       OPENAI_API_KEY: "${LITELLM_USER_02_API_KEY}"
+
+  # =============================================================
+  # User 02 — hermes-dashboard (admin web em /dash02/)
+  # =============================================================
+  hermes-dashboard-user_02:
+    <<: *hermes-dashboard-base
+    container_name: hermes-dashboard-user_02
+    volumes:
+      - hermes-home-user_02:/home/hermes/.hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_02_API_KEY}"
+      <<: *litellm-inference
 
   # =============================================================
   # User 03 — hermes-agent (gateway interno)
@@ -244,6 +292,21 @@ services:
       OPENAI_API_KEY: "${LITELLM_USER_03_API_KEY}"
 
   # =============================================================
+  # User 03 — hermes-dashboard (admin web em /dash03/)
+  # =============================================================
+  hermes-dashboard-user_03:
+    <<: *hermes-dashboard-base
+    container_name: hermes-dashboard-user_03
+    volumes:
+      - hermes-home-user_03:/home/hermes/.hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_03_API_KEY}"
+      <<: *litellm-inference
+
+  # =============================================================
   # Nginx — reverse proxy + basic auth
   # Dockerfile customizado gera os .htpasswd a partir de env vars
   # =============================================================
@@ -267,6 +330,9 @@ services:
       - hermes-webui-user_01
       - hermes-webui-user_02
       - hermes-webui-user_03
+      - hermes-dashboard-user_01
+      - hermes-dashboard-user_02
+      - hermes-dashboard-user_03
     networks:
       - ai-net
 
