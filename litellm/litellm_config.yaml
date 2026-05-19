@@ -1,0 +1,28 @@
+# =============================================================
+# LiteLLM — configuração de modelos e provider
+# =============================================================
+# Os model_name abaixo devem corresponder ao HERMES_MODEL no .env
+# e ao que cada agente solicita via API.
+#
+# Para adicionar providers (OpenAI, Anthropic, Groq, etc.):
+# https://docs.litellm.ai/docs/providers
+# =============================================================
+
+model_list:
+  - model_name: gemini-flash-lite
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-3.1-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false

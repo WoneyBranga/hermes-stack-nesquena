@@ -1,0 +1,12 @@
+# Secrets e estado local — nunca versionar
+.env
+data/
+
+# htpasswd gerados dinamicamente no container (não ficam no host)
+nginx/.htpasswd-*
+
+# Logs e caches
+*.log
+__pycache__/
+*.pyc
+.DS_Store

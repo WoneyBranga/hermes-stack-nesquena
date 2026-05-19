@@ -1,0 +1,277 @@
+# =============================================================
+# Hermes Agent Stack — hermes-stack-2
+# =============================================================
+# Serviços:
+#   LiteLLM   → proxy OpenAI-compatible + UI admin
+#   hermes-agent × 3   → NousResearch/hermes-agent em gateway mode
+#   hermes-webui × 3   → nesquena/hermes-webui por usuário
+#   nginx     → reverse proxy + basic auth
+#
+# Rotas públicas (porta 80):
+#   /litellm/  → LiteLLM admin UI + API
+#   /chat1/    → hermes-webui user_01  (basic auth)
+#   /chat2/    → hermes-webui user_02  (basic auth)
+#   /chat3/    → hermes-webui user_03  (basic auth)
+#
+# Versões dos containers (atualize aqui para upgrades):
+#   litellm:          v1.85.0
+#   hermes-agent:     v2026.5.16
+#   hermes-webui:     0.51.92
+#   postgres:         16-alpine
+#   nginx:            1.27-alpine (base do Dockerfile customizado)
+# =============================================================
+#
+# PRIMEIRO USO (virtual keys do LiteLLM):
+#   1. cp .env.example .env  && edite as variáveis obrigatórias
+#   2. docker compose up -d litellm-db litellm
+#   3. Aguarde o LiteLLM subir e acesse http://localhost:4000/ui
+#      (login com a LITELLM_MASTER_KEY)
+#   4. Virtual Keys → Create Key → uma para cada usuário
+#   5. Cole LITELLM_USER_01_API_KEY, _02, _03 no .env
+#   6. docker compose up -d
+#
+# UPGRADE do hermes-agent (rebuild dos volumes hermes-agent-src):
+#   docker compose down
+#   docker volume rm hesmes-stack-2_hermes-agent-src-user_01
+#   docker volume rm hesmes-stack-2_hermes-agent-src-user_02
+#   docker volume rm hesmes-stack-2_hermes-agent-src-user_03
+#   docker compose pull && docker compose up -d
+# =============================================================
+
+# ── YAML anchors ─────────────────────────────────────────────
+
+x-litellm-inference: &litellm-inference
+  HERMES_INFERENCE_PROVIDER: "custom"
+  CUSTOM_BASE_URL: "http://litellm:4000/v1"
+  HERMES_MODEL: "${HERMES_MODEL:-gemini-flash-lite}"
+
+x-hermes-agent-base: &hermes-agent-base
+  image: nousresearch/hermes-agent:v2026.5.16
+  command: gateway run
+  restart: unless-stopped
+  depends_on:
+    litellm:
+      condition: service_healthy
+  networks:
+    - ai-net
+
+x-hermes-webui-base: &hermes-webui-base
+  image: ghcr.io/nesquena/hermes-webui:0.51.92
+  restart: unless-stopped
+  networks:
+    - ai-net
+  environment: &hermes-webui-env
+    HERMES_WEBUI_HOST: "0.0.0.0"
+    HERMES_WEBUI_PORT: "8787"
+    # Auto-instala o pacote hermes do volume hermes-agent-src na primeira subida
+    HERMES_WEBUI_AUTO_INSTALL: "1"
+    # UID/GID sincronizados com hermes-agent para acesso ao volume compartilhado
+    WANTED_UID: "${HERMES_UID:-1000}"
+    WANTED_GID: "${HERMES_GID:-1000}"
+    <<: *litellm-inference
+
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # =============================================================
+  # PostgreSQL — banco de dados do LiteLLM
+  # =============================================================
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${LITELLM_POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${LITELLM_POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${LITELLM_POSTGRES_DB}"
+    volumes:
+      - litellm-postgres-data:/var/lib/postgresql/data
+    networks:
+      - ai-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LITELLM_POSTGRES_USER} -d ${LITELLM_POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # =============================================================
+  # LiteLLM — proxy + UI admin (acessível em /litellm/)
+  # =============================================================
+  litellm:
+    image: docker.litellm.ai/berriai/litellm-database:v1.85.0
+    container_name: litellm
+    restart: unless-stopped
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    volumes:
+      - ./litellm/litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      DATABASE_URL: "postgresql://${LITELLM_POSTGRES_USER}:${LITELLM_POSTGRES_PASSWORD}@litellm-db:5432/${LITELLM_POSTGRES_DB}"
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
+      LITELLM_SALT_KEY: "${LITELLM_SALT_KEY}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      STORE_MODEL_IN_DB: "true"
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "2"]
+    networks:
+      - ai-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/readiness', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  # =============================================================
+  # User 01 — hermes-agent (gateway interno)
+  # =============================================================
+  hermes-agent-user_01:
+    <<: *hermes-agent-base
+    container_name: hermes-agent-user_01
+    volumes:
+      - hermes-home-user_01:/home/hermes/.hermes
+      - hermes-agent-src-user_01:/opt/hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_01_API_KEY}"
+      <<: *litellm-inference
+
+  # =============================================================
+  # User 01 — hermes-webui (chat UI)
+  # =============================================================
+  hermes-webui-user_01:
+    <<: *hermes-webui-base
+    container_name: hermes-webui-user_01
+    depends_on:
+      hermes-agent-user_01:
+        condition: service_started
+      litellm:
+        condition: service_healthy
+    volumes:
+      - hermes-home-user_01:/home/hermeswebui/.hermes
+      - hermes-agent-src-user_01:/home/hermeswebui/.hermes/hermes-agent:ro
+    environment:
+      <<: *hermes-webui-env
+      HERMES_WEBUI_STATE_DIR: "/home/hermeswebui/.hermes/webui-user_01"
+      OPENAI_API_KEY: "${LITELLM_USER_01_API_KEY}"
+
+  # =============================================================
+  # User 02 — hermes-agent (gateway interno)
+  # =============================================================
+  hermes-agent-user_02:
+    <<: *hermes-agent-base
+    container_name: hermes-agent-user_02
+    volumes:
+      - hermes-home-user_02:/home/hermes/.hermes
+      - hermes-agent-src-user_02:/opt/hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_02_API_KEY}"
+      <<: *litellm-inference
+
+  # =============================================================
+  # User 02 — hermes-webui (chat UI)
+  # =============================================================
+  hermes-webui-user_02:
+    <<: *hermes-webui-base
+    container_name: hermes-webui-user_02
+    depends_on:
+      hermes-agent-user_02:
+        condition: service_started
+      litellm:
+        condition: service_healthy
+    volumes:
+      - hermes-home-user_02:/home/hermeswebui/.hermes
+      - hermes-agent-src-user_02:/home/hermeswebui/.hermes/hermes-agent:ro
+    environment:
+      <<: *hermes-webui-env
+      HERMES_WEBUI_STATE_DIR: "/home/hermeswebui/.hermes/webui-user_02"
+      OPENAI_API_KEY: "${LITELLM_USER_02_API_KEY}"
+
+  # =============================================================
+  # User 03 — hermes-agent (gateway interno)
+  # =============================================================
+  hermes-agent-user_03:
+    <<: *hermes-agent-base
+    container_name: hermes-agent-user_03
+    volumes:
+      - hermes-home-user_03:/home/hermes/.hermes
+      - hermes-agent-src-user_03:/opt/hermes
+    environment:
+      HERMES_HOME: "/home/hermes/.hermes"
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      OPENAI_API_KEY: "${LITELLM_USER_03_API_KEY}"
+      <<: *litellm-inference
+
+  # =============================================================
+  # User 03 — hermes-webui (chat UI)
+  # =============================================================
+  hermes-webui-user_03:
+    <<: *hermes-webui-base
+    container_name: hermes-webui-user_03
+    depends_on:
+      hermes-agent-user_03:
+        condition: service_started
+      litellm:
+        condition: service_healthy
+    volumes:
+      - hermes-home-user_03:/home/hermeswebui/.hermes
+      - hermes-agent-src-user_03:/home/hermeswebui/.hermes/hermes-agent:ro
+    environment:
+      <<: *hermes-webui-env
+      HERMES_WEBUI_STATE_DIR: "/home/hermeswebui/.hermes/webui-user_03"
+      OPENAI_API_KEY: "${LITELLM_USER_03_API_KEY}"
+
+  # =============================================================
+  # Nginx — reverse proxy + basic auth
+  # Dockerfile customizado gera os .htpasswd a partir de env vars
+  # =============================================================
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    environment:
+      NGINX_USER_01: "${NGINX_USER_01:-user01}"
+      NGINX_PASS_01: "${NGINX_PASS_01}"
+      NGINX_USER_02: "${NGINX_USER_02:-user02}"
+      NGINX_PASS_02: "${NGINX_PASS_02}"
+      NGINX_USER_03: "${NGINX_USER_03:-user03}"
+      NGINX_PASS_03: "${NGINX_PASS_03}"
+    depends_on:
+      - litellm
+      - hermes-webui-user_01
+      - hermes-webui-user_02
+      - hermes-webui-user_03
+    networks:
+      - ai-net
+
+# =============================================================
+# Rede interna
+# =============================================================
+networks:
+  ai-net:
+    driver: bridge
+
+# =============================================================
+# Volumes persistentes
+# =============================================================
+volumes:
+  litellm-postgres-data:
+
+  hermes-home-user_01:
+  hermes-agent-src-user_01:
+
+  hermes-home-user_02:
+  hermes-agent-src-user_02:
+
+  hermes-home-user_03:
+  hermes-agent-src-user_03:
